@@ -3,7 +3,7 @@
 > **Transform your Git skills from confused to confident.**
 > DevQuest is an interactive, cyberpunk-themed learning platform that combines a simulated terminal, real-time visualizations, and an AI tutor to teach Git mastery.
 
-![DevQuest Screenshot](https://images.unsplash.com/photo-1550751827-4bd374c3f58b?ixlib=rb-4.0.3&auto=format&fit=crop&w=2070&q=80) 
+![DevQuest Screenshot](image.png) 
 *(Note: Replace with actual screenshot)*
 
 ## ✨ Key Features
