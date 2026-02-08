@@ -1,219 +1,262 @@
-import React, { useState } from 'react';
+
+import React, { useState, useEffect } from 'react';
+import { useUser, SignedIn, SignedOut, RedirectToSignIn } from '@clerk/clerk-react';
+import { Loader2 } from 'lucide-react';
+import { supabase } from './services/supabaseClient';
+import { useInitializeUser } from './hooks/useInitializeUser';
+import { calculateLevel, calculateStreak } from './utils/gameUtils';
+import { MISSIONS, BADGES, Badge } from './data/missions';
+import { GameView, UserProgress } from './types';
+
+// Components
 import Dashboard from './components/Dashboard';
 import MissionView from './components/MissionView';
-import { GameView, Mission, UserProgress } from './types';
-import { Terminal, GitBranch, Cpu, ChevronRight } from 'lucide-react';
+import { LevelUpCelebration } from './components/LevelUpCelebration';
+import { BadgeUnlocked } from './components/BadgeUnlocked';
+import { OnboardingModal } from './components/OnboardingModal';
+import { LandingPage } from './components/LandingPage';
+import { XPGainAnimation } from './components/XPGainAnimation';
 
-const MISSIONS: Mission[] = [
-  // --- MODULE 1: GIT ---
-  {
-    id: 'git-1',
-    title: "Operation Genesis",
-    description: "Initialize a repository and make your first commit to secure the timeline.",
-    category: 'Git',
-    difficulty: "Beginner",
-    xp: 100,
-    theory: "Think of Git like a video game 'Save System.' `git init` starts the game. `git add` chooses which items (files) go into your backpack. `git commit` actually saves the game state so you can respawn there later if you mess up.",
-    initialFileSystem: { 'project': { type: 'directory', name: 'project', children: {} }},
-    tasks: [
-        { id: 't1', description: "Initialize a git repository.", completed: false, hint: "git init", check: (s) => s.git.repoInitialized },
-        { id: 't2', description: "Create 'hero.txt'", completed: false, hint: "touch hero.txt", check: (s) => !!s.fileSystem['project']?.children?.['hero.txt'] },
-        { id: 't3', description: "Stage hero.txt", completed: false, hint: "git add hero.txt", check: (s) => s.git.staging.includes('hero.txt') },
-        { id: 't4', description: "Commit with message 'Initial save'", completed: false, hint: "git commit -m 'Initial save'", check: (s) => s.git.commits.length > 0 }
-    ]
-  },
-  {
-    id: 'git-3',
-    title: "The Hydra Merge",
-    description: "Manage multiple timelines (branches) and merge them back.",
-    category: 'Git',
-    difficulty: "Expert",
-    xp: 500,
-    theory: "Branches are parallel universes. You create them with `git branch`, switch with `git checkout`, and combine them with `git merge`.",
-    initialFileSystem: { 'project': { type: 'directory', name: 'project', children: { 'app.js': { type: 'file', name: 'app.js', content: 'App v1' } } } },
-    tasks: [
-        { 
-            id: 't1', description: "Init and commit initial state", completed: false, hint: "git init && git add . && git commit -m 'init'", 
-            check: (s) => s.git.commits.length >= 1 && s.git.repoInitialized 
-        },
-        { 
-            id: 't2', description: "Create branch 'feature' and switch to it", completed: false, hint: "git checkout -b feature", 
-            check: (s) => s.git.HEAD.type === 'branch' && s.git.HEAD.ref === 'feature' 
-        },
-        { 
-            id: 't3', description: "Modify app.js and commit", completed: false, hint: "touch app.js (simulate edit) -> add -> commit", 
-            check: (s) => s.git.commits.length >= 2 && s.git.branches['feature'] !== s.git.branches['main'] 
-        },
-        { 
-            id: 't4', description: "Switch back to main and merge feature", completed: false, hint: "git checkout main -> git merge feature", 
-            check: (s) => {
-                 const headCommitId = s.git.branches[s.git.HEAD.ref];
-                 const headCommit = s.git.commits.find(c => c.id === headCommitId);
-                 return s.git.HEAD.ref === 'main' && !!headCommit?.mergeParentId;
-            }
-        }
-    ]
-  },
-  {
-    id: 'git-4',
-    title: "Cloud Uplink",
-    description: "Push your local timeline to the remote server.",
-    category: 'Git',
-    difficulty: "Expert",
-    xp: 600,
-    theory: "Your code lives on your machine (Local). To share it, you must push it to a Server (Remote). `git remote add` connects the wire. `git push` sends the data.",
-    initialFileSystem: { 'project': { type: 'directory', name: 'project', children: { 'main.py': { type: 'file', name: 'main.py', content: 'print("Hello World")' } } } },
-    tasks: [
-        { id: 't1', description: "Initialize the repository.", completed: false, hint: "git init", check: (s) => s.git.repoInitialized },
-        { id: 't2', description: "Stage the 'main.py' file.", completed: false, hint: "git add main.py", check: (s) => s.git.staging.includes('main.py')},
-        { id: 't3', description: "Commit the file.", completed: false, hint: "git commit -m \"Initial commit\"", check: (s) => s.git.commits.length > 0 },
-        { 
-            id: 't4', description: "Link remote 'origin'", completed: false, hint: "git remote add origin https://github.com/user/repo.git", 
-            check: (s) => !!s.git.remotes['origin'] 
-        },
-        { 
-            id: 't5', description: "Push code to origin's main branch", completed: false, hint: "git push origin main", 
-            check: (s) => {
-                const remote = s.git.remotes['origin'];
-                return remote && remote.commits.length > 0 && !!remote.branches['main'];
-            }
-        }
-    ]
-  },
-
-  // --- MODULE 2: BASH ---
-  {
-    id: 'bash-1',
-    title: "Base Construction",
-    description: "Navigate the void. Build your directory structure.",
-    category: 'Terminal',
-    difficulty: "Beginner",
-    xp: 50,
-    theory: "`pwd` = Where am I? `ls` = What's here? `cd` = Teleport. `mkdir` = Build room.",
-    initialFileSystem: { 'home': { type: 'directory', name: 'home', children: {} } },
-    tasks: [
-        { id: 't1', description: "Go to /home", completed: false, hint: "cd /home", check: (s) => s.cwd === '/home' },
-        { id: 't2', description: "Create 'base' folder", completed: false, hint: "mkdir base", check: (s) => !!s.fileSystem['home']?.children?.['base'] },
-        { id: 't3', description: "Enter base and build 'bunker'", completed: false, hint: "cd base; mkdir bunker", check: (s) => !!s.fileSystem['home']?.children?.['base']?.children?.['bunker'] }
-    ]
-  },
-
-  // --- MODULE 3: CORE DEV ---
-  {
-    id: 'core-1',
-    title: "Secret Agent",
-    description: "Learn how to handle secrets and environment variables safely.",
-    category: 'Core',
-    difficulty: "Beginner",
-    xp: 150,
-    theory: "Secrets (like API keys) should NEVER be hardcoded in your source code. \n\n1. `export KEY=VALUE` sets a variable for the current session (RAM only).\n2. `.env` files are used to persist secrets locally, but must be ignored by Git.",
-    initialFileSystem: { 'project': { type: 'directory', name: 'project', children: {} } },
-    tasks: [
-        { 
-            id: 't1', 
-            description: "Export a session variable (API_KEY)", 
-            completed: false, 
-            hint: "export API_KEY=12345", 
-            check: (s) => s.envVariables['API_KEY'] === '12345' 
-        },
-        { 
-            id: 't2', 
-            description: "Create a .env file with the secret", 
-            completed: false, 
-            hint: "echo \"API_KEY=12345\" > .env", 
-            check: (s) => {
-                const f = s.fileSystem['project']?.children?.['.env'];
-                return f?.type === 'file' && f.content?.includes('API_KEY=12345') || false;
-            }
-        },
-        { 
-            id: 't3', 
-            description: "Verify .env content", 
-            completed: false, 
-            hint: "cat .env", 
-            check: (s) => s.commandHistory.some(cmd => cmd.startsWith('cat') && cmd.includes('.env')) 
-        }
-    ]
-  }
-];
-
-const LandingPage = ({ onStart }: { onStart: () => void }) => (
-    <div className="min-h-screen relative overflow-hidden flex flex-col items-center justify-center">
-        <div className="absolute inset-0 bg-[linear-gradient(to_right,#80808012_1px,transparent_1px),linear-gradient(to_bottom,#80808012_1px,transparent_1px)] bg-[size:24px_24px] [mask-image:radial-gradient(ellipse_60%_50%_at_50%_0%,#000_70%,transparent_100%)] pointer-events-none"></div>
-        <div className="absolute top-0 left-1/2 -translate-x-1/2 w-[800px] h-[400px] bg-cyber-primary/20 blur-[120px] rounded-full opacity-50 pointer-events-none"></div>
-        
-        <div className="relative z-10 text-center max-w-4xl px-4">
-            <h1 className="text-6xl md:text-8xl font-bold tracking-tight mb-6 bg-clip-text text-transparent bg-gradient-to-b from-white to-white/60">
-                Dev<span className="text-cyber-primary">Quest</span>
-            </h1>
-            <p className="text-xl md:text-2xl text-cyber-muted mb-10 max-w-2xl mx-auto leading-relaxed">
-                Master the Terminal, Git, and Core Dev Skills through interactive simulation.
-            </p>
-            <button 
-                onClick={onStart}
-                className="group relative px-8 py-4 bg-cyber-primary hover:bg-emerald-400 text-black font-bold rounded-lg transition-all duration-200 hover:shadow-[0_0_20px_rgba(0,220,130,0.4)] hover:-translate-y-1"
-            >
-                <div className="flex items-center gap-2">
-                    INITIALIZE TRAINING
-                    <ChevronRight className="w-5 h-5 group-hover:translate-x-1 transition-transform" />
-                </div>
-            </button>
-        </div>
-    </div>
-);
+const ONBOARDING_KEY = 'dq_has_seen_onboarding';
 
 const App: React.FC = () => {
-  const [view, setView] = useState<GameView>(GameView.LANDING);
-  const [currentMissionId, setCurrentMissionId] = useState<string | null>(null);
-  const [progress, setProgress] = useState<UserProgress>({
-      xp: 0,
-      streak: 1,
-      level: 1,
-      completedMissions: [],
-      badges: []
-  });
+    // Parse initial route from URL
+    const getRouteFromURL = (): { view: GameView; missionId: string | null } => {
+        const path = window.location.pathname;
+        if (path.startsWith('/mission/')) {
+            const missionId = path.replace('/mission/', '');
+            if (MISSIONS.find(m => m.id === missionId)) {
+                return { view: GameView.MISSION, missionId };
+            }
+        }
+        if (path === '/dashboard') {
+            return { view: GameView.DASHBOARD, missionId: null };
+        }
+        return { view: GameView.LANDING, missionId: null };
+    };
 
-  const startMission = (id: string) => {
-    setCurrentMissionId(id);
-    setView(GameView.MISSION);
-  };
+    const initialRoute = getRouteFromURL();
+    const [view, setView] = useState<GameView>(initialRoute.view);
+    const [currentMissionId, setCurrentMissionId] = useState<string | null>(initialRoute.missionId);
+    const [showOnboarding, setShowOnboarding] = useState(false);
+    const [showLevelUp, setShowLevelUp] = useState<number | null>(null);
+    const [newBadge, setNewBadge] = useState<Badge | null>(null);
+    const [xpGained, setXpGained] = useState<number | null>(null);
 
-  const handleMissionComplete = (missionXP: number) => {
-      setProgress(prev => ({
-          ...prev,
-          xp: prev.xp + missionXP,
-          completedMissions: [...new Set([...prev.completedMissions, currentMissionId!])],
-      }));
-  }
+    // Auth & DB Hooks
+    const { user, isSignedIn } = useUser();
+    const { progress: dbProgress, loading: profileLoading } = useInitializeUser();
 
-  const exitMission = () => {
-    setView(GameView.DASHBOARD);
-    setCurrentMissionId(null);
-  };
+    // Local state for optimistic updates
+    const [progress, setProgress] = useState<UserProgress | null>(null);
 
-  const activeMission = MISSIONS.find(m => m.id === currentMissionId);
+    // Sync local state with DB state
+    useEffect(() => {
+        if (dbProgress) {
+            setProgress(dbProgress);
+        }
+    }, [dbProgress]);
 
-  if (view === GameView.LANDING) {
-      return <LandingPage onStart={() => setView(GameView.DASHBOARD)} />;
-  }
+    // Handle browser back/forward navigation
+    useEffect(() => {
+        const handlePopState = () => {
+            const route = getRouteFromURL();
+            setView(route.view);
+            setCurrentMissionId(route.missionId);
+        };
 
-  if (view === GameView.MISSION && activeMission) {
+        window.addEventListener('popstate', handlePopState);
+        return () => window.removeEventListener('popstate', handlePopState);
+    }, []);
+
+    // Navigate with URL update
+    const navigate = (newView: GameView, missionId: string | null = null) => {
+        let path = '/';
+        if (newView === GameView.DASHBOARD) path = '/dashboard';
+        else if (newView === GameView.MISSION && missionId) path = `/mission/${missionId}`;
+
+        window.history.pushState({ view: newView, missionId }, '', path);
+        setView(newView);
+        setCurrentMissionId(missionId);
+    };
+
+    const startMission = (id: string) => {
+        navigate(GameView.MISSION, id);
+    };
+
+    const handleMissionComplete = async (missionXP: number) => {
+        if (!progress || !user) return;
+
+        // Check if mission was already completed -> NO new XP
+        if (progress.completedMissions.includes(currentMissionId!)) {
+            return;
+        }
+
+        // Show XP gain animation
+        setXpGained(missionXP);
+        setTimeout(() => setXpGained(null), 3000);
+
+        const oldLevel = progress.level;
+        const newXP = progress.xp + missionXP;
+        const newLevel = calculateLevel(newXP);
+        const newBadges = [...progress.badges];
+
+        // Update streak
+        const newStreak = calculateStreak(progress.lastActiveDate, progress.streak);
+
+        // Check for badge unlocks
+        // First Commit badge - first mission completed
+        if (progress.completedMissions.length === 0 && !newBadges.includes('first_commit')) {
+            newBadges.push('first_commit');
+            setNewBadge(BADGES.find(b => b.id === 'first_commit') || null);
+        }
+
+        // Git Master - all Git missions
+        const gitMissions = MISSIONS.filter(m => m.category === 'Git');
+        const completedGit = [...progress.completedMissions, currentMissionId!].filter(id =>
+            gitMissions.some(m => m.id === id)
+        );
+        if (completedGit.length >= gitMissions.length && !newBadges.includes('git_master')) {
+            newBadges.push('git_master');
+            setTimeout(() => setNewBadge(BADGES.find(b => b.id === 'git_master') || null), 2000);
+        }
+
+        // XP Hunter - 500+ XP
+        if (newXP >= 500 && !newBadges.includes('xp_500')) {
+            newBadges.push('xp_500');
+            setTimeout(() => setNewBadge(BADGES.find(b => b.id === 'xp_500') || null), 2000);
+        }
+
+        // Level Up badge - reached level 2+
+        if (newLevel >= 2 && !newBadges.includes('level_up')) {
+            newBadges.push('level_up');
+        }
+
+        // Branch Master - hydra merge mission
+        if (currentMissionId === 'git-3' && !newBadges.includes('merge_complete')) {
+            newBadges.push('merge_complete');
+            setTimeout(() => setNewBadge(BADGES.find(b => b.id === 'merge_complete') || null), 2000);
+        }
+
+        // Show level up celebration if leveled up
+        if (newLevel > oldLevel) {
+            setTimeout(() => setShowLevelUp(newLevel), 500);
+        }
+
+        // Optimistic Update
+        setProgress({
+            ...progress,
+            xp: newXP,
+            level: newLevel,
+            completedMissions: [...progress.completedMissions, currentMissionId!],
+            badges: newBadges,
+            lastActiveDate: new Date().toISOString(),
+            streak: newStreak
+        });
+
+        // Supabase Persistence
+        try {
+            await supabase.from('users_profile').update({
+                xp: newXP,
+                level: newLevel,
+                streak: newStreak,
+                last_active: new Date().toISOString(),
+                badges: newBadges
+            }).eq('user_id', user.id);
+
+            await supabase.from('missions_completed').insert({
+                user_id: user.id,
+                mission_id: currentMissionId!,
+                xp_earned: missionXP,
+                completed_at: new Date().toISOString()
+            });
+        } catch (err) {
+            console.error("Failed to save progress:", err);
+        }
+    };
+
+    const exitMission = () => {
+        navigate(GameView.DASHBOARD);
+    };
+
+    const activeMission = MISSIONS.find(m => m.id === currentMissionId);
+
+    // Initial check for onboarding
+    useEffect(() => {
+        const hasSeenOnboarding = localStorage.getItem(ONBOARDING_KEY);
+        if (!hasSeenOnboarding && view === GameView.DASHBOARD) {
+            // Only show usually on first visit to Dashboard
+            // But if we start with Landing, we show it later.
+            // Keep simple: if not seen, check logic
+        }
+    }, [view]);
+
+    const handleStart = () => {
+        const hasSeenOnboarding = localStorage.getItem(ONBOARDING_KEY);
+        if (!hasSeenOnboarding) {
+            setShowOnboarding(true);
+            localStorage.setItem(ONBOARDING_KEY, 'true');
+        }
+        navigate(GameView.DASHBOARD);
+    };
+
+    // Loading State
+    if (isSignedIn && (profileLoading || !progress)) {
+        return (
+            <div className="min-h-screen bg-cyber-bg flex items-center justify-center">
+                <div className="flex flex-col items-center gap-4">
+                    <Loader2 className="animate-spin text-cyber-primary w-12 h-12" />
+                    <div className="text-cyber-muted animate-pulse">Establishing Uplink...</div>
+                </div>
+            </div>
+        );
+    }
+
+    if (view === GameView.LANDING) {
+        return <LandingPage onStart={handleStart} />;
+    }
+
+    if (view === GameView.MISSION && activeMission) {
+        return (
+            <>
+                <SignedIn>
+                    <MissionView
+                        mission={activeMission}
+                        onExit={exitMission}
+                        onComplete={handleMissionComplete}
+                        userProgress={progress}
+                    />
+                </SignedIn>
+                <SignedOut>
+                    <RedirectToSignIn afterSignInUrl={window.location.pathname} />
+                </SignedOut>
+            </>
+        );
+    }
+
     return (
-        <MissionView 
-            mission={activeMission} 
-            onExit={exitMission} 
-            onComplete={handleMissionComplete}
-        />
-    );
-  }
+        <>
+            {/* Global XP Gain Animation */}
+            {xpGained && <XPGainAnimation xp={xpGained} />}
 
-  return (
-      <Dashboard 
-        startMission={startMission} 
-        missions={MISSIONS} 
-        userProgress={progress}
-      />
-  );
+            {showLevelUp && <LevelUpCelebration level={showLevelUp} onClose={() => setShowLevelUp(null)} />}
+            {newBadge && <BadgeUnlocked badge={newBadge} onClose={() => setNewBadge(null)} />}
+            {showOnboarding && <OnboardingModal onClose={() => setShowOnboarding(false)} />}
+
+            <SignedIn>
+                {progress && (
+                    <Dashboard
+                        startMission={startMission}
+                        missions={MISSIONS}
+                        userProgress={progress}
+                    />
+                )}
+            </SignedIn>
+            <SignedOut>
+                <RedirectToSignIn afterSignInUrl="/dashboard" />
+            </SignedOut>
+        </>
+    );
 };
 
 export default App;

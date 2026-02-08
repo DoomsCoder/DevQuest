@@ -30,16 +30,33 @@ export interface GitState {
   commits: Commit[];
   branches: { [key: string]: string }; // branchName -> commitId
   HEAD: { type: 'branch' | 'commit'; ref: string }; // ref is branchName or commitId
-  staging: string[]; // List of file paths
+  staging: string[]; // List of file paths (staged files)
   repoInitialized: boolean;
   remotes: { [key: string]: RemoteRepo }; // e.g. 'origin'
   activeRemoteBranch?: string; // For tracking upstream, e.g., 'origin/main'
+  stash?: { id: string; staging: string[]; fileSnapshot: string; message: string; timestamp: number }[]; // Stash stack
+  // Enhanced file state tracking for realistic git status
+  workingDirectory: {
+    modified: string[];   // Files modified but not staged
+    deleted: string[];    // Files deleted but not staged
+  };
+  trackedFiles: string[]; // Files that have been committed at least once
+}
+
+// Structured output line for colored terminal rendering
+export interface TerminalOutputLine {
+  text: string;
+  type: 'header' | 'hint' | 'staged' | 'modified' | 'untracked' | 'deleted' | 'normal' | 'branch' | 'branch-current';
+  tooltip?: string;
 }
 
 export interface TerminalLine {
   id: string;
-  type: 'input' | 'output' | 'error' | 'success' | 'info';
+  type: 'input' | 'output' | 'error' | 'success' | 'info' | 'git-status' | 'git-branch';
   content: string;
+  structured?: {
+    lines: TerminalOutputLine[];
+  };
 }
 
 export interface Mission {
@@ -80,12 +97,47 @@ export interface SavedMissionState {
   completed: boolean;
 }
 
+export interface UserProfile {
+  id: string; // uuid
+  user_id: string; // clerk user id
+  username: string;
+  avatar_url: string;
+  xp: number;
+  level: number;
+  streak: number;
+  badges?: string[];
+  last_active: string; // timestamp
+  created_at: string; // timestamp
+}
+
+export interface MissionCompleted {
+  id: string;
+  user_id: string;
+  mission_id: string;
+  xp_earned: number;
+  completed_at: string;
+}
+
+export interface MissionHistoryRecord {
+  id: string;
+  user_id: string;
+  mission_id: string;
+  commands: any[]; // strict JSON type later if needed
+  repo_state: any;
+  completed: boolean;
+  created_at: string;
+}
+
 export interface UserProgress {
+  // Legacy frontend interface - tailored for UI
   xp: number;
   streak: number;
   level: number;
-  completedMissions: string[];
+  completedMissions: string[]; // List of IDs
   badges: string[];
+  lastActiveDate: string;
+  username: string;
+  avatarSeed: string;
 }
 
 export const GameView = {
